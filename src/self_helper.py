@@ -243,6 +243,14 @@ class GoalStore:
                     value TEXT
                 );
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS mood_journal (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    mood TEXT NOT NULL,
+                    notes TEXT
+                );
+            """)
             conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('privacy_level', 'low');")
             conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('audio_alerts', 'on');")
             conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('speech_alerts', 'off');")
