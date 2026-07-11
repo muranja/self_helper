@@ -17,21 +17,32 @@ from typing import Dict, List, Any
 DB_PATH = Path.home() / ".local/share/self_helper/goals_manager.db"
 
 def init_settings(conn: sqlite3.Connection) -> None:
-    """Ensures the settings table and default values are initialized."""
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        );
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS mood_journal (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT NOT NULL,
-            mood TEXT NOT NULL,
-            notes TEXT
-        );
-    """)
+    """Ensures all database tables and default settings are initialized."""
+    conn.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);")
+    conn.execute("""CREATE TABLE IF NOT EXISTS mood_journal (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT NOT NULL,
+        mood_score INTEGER, energy_score INTEGER, focus_score INTEGER,
+        mood_label TEXT, factors TEXT, gratitude TEXT, notes TEXT, weather_info TEXT);""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS learning_goals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, subject TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS study_journal (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT NOT NULL, subject TEXT NOT NULL,
+        topic_studied TEXT NOT NULL, duration_minutes INTEGER DEFAULT 0,
+        understanding_rating INTEGER DEFAULT 3, notes TEXT);""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS questions_catalog (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, subject TEXT NOT NULL, question TEXT NOT NULL,
+        answer TEXT, confidence_level INTEGER DEFAULT 1, times_reviewed INTEGER DEFAULT 0,
+        last_reviewed TEXT, created_at TEXT NOT NULL);""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS journal_qa (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, timestamp TEXT NOT NULL,
+        journal_type TEXT NOT NULL, question TEXT NOT NULL, response_type TEXT NOT NULL,
+        response_value TEXT NOT NULL, time_taken_seconds REAL DEFAULT 0.0);""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS habits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE,
+        category TEXT DEFAULT 'general', created_at TEXT NOT NULL);""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS habit_logs (
+        habit_id INTEGER NOT NULL, date TEXT NOT NULL, status INTEGER DEFAULT 0,
+        PRIMARY KEY (habit_id, date), FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE CASCADE);""")
     conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('privacy_level', 'low');")
     conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('audio_alerts', 'on');")
     conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('speech_alerts', 'off');")
@@ -58,64 +69,48 @@ def print_help_menu() -> None:
 \033[1;36m============================================================\033[0m
 \033[1;33mUsage:\033[0m shtool <command> [arguments]
 
-\033[1;32mTelemetry & Coaching Commands:\033[0m
-  \033[1;35mstatus\033[0m       ➔ Show active process, AFK status, and current CPU/RAM
-  \033[1;35mreport\033[0m       ➔ Render daily goal performance & Top 5 most active apps
-  \033[1;35mweekly\033[0m       ➔ Render 7-day cumulative persistence history & coaching trends
-  \033[1;35mdump\033[0m         ➔ Export complete tracking database to JSON for analysis
+\033[1;32mTelemetry & Coaching:\033[0m
+  \033[1;35mstatus\033[0m         ➔ Show active process, AFK status, CPU/RAM
+  \033[1;35mreport\033[0m         ➔ Daily goal performance & coaching advice
+  \033[1;35mweekly\033[0m         ➔ 7-day trends & coaching
+  \033[1;35mdump\033[0m           ➔ Export full database to JSON for AI analysis
 
 \033[1;32mGoal & System Settings:\033[0m
-  \033[1;35mgoals\033[0m        ➔ List all current limits and focus targets
-  \033[1;35madd\033[0m          ➔ Add a new goal (e.g., shtool add --pattern youtube.com --hours 1 --limit)
-  \033[1;35medit\033[0m         ➔ Edit an existing goal interactively (or: shtool edit [pattern])
-  \033[1;35mremove\033[0m       ➔ Remove an existing goal interactively (or: shtool remove [pattern])
-  \033[1;35mconfig\033[0m       ➔ Set/view CLI configuration parameters (e.g. privacy, audio)
+  \033[1;35mgoals\033[0m          ➔ List all limits and focus targets
+  \033[1;35madd\033[0m            ➔ Add goal (shtool add --pattern x --hours 1 --limit)
+  \033[1;35medit\033[0m           ➔ Edit a goal interactively
+  \033[1;35mremove\033[0m         ➔ Remove a goal interactively
+  \033[1;35mpreset\033[0m         ➔ Apply a persona preset (student, nurse, engineer, hobbyist)
+  \033[1;35mconfig\033[0m         ➔ Set/view privacy, audio, speech settings
 
-\033[1;32mMood Journaling & Mindset:\033[0m
-  \033[1;35mmood\033[0m         ➔ Log your current mood and thoughts
-  \033[1;35mmood journal\033[0m ➔ Retrieve and read your mood history logs
-  \033[1;35mquotes\033[0m       ➔ Display random motivational quotes and scientific facts
+\033[1;32mLearning & Knowledge:\033[0m
+  \033[1;35mstudy\033[0m          ➔ Log a guided study session
+  \033[1;35mstudy journal\033[0m  ➔ View study session history
+  \033[1;35mlearning-goal\033[0m  ➔ Manage learning subjects (add/remove/list)
+  \033[1;35mquestion\033[0m       ➔ Manage flashcard questions (add/remove/list)
+  \033[1;35mquiz\033[0m           ➔ Self-test with flashcards and update confidence
+
+\033[1;32mHabits & Journaling:\033[0m
+  \033[1;35mhabit\033[0m          ➔ Manage daily habits (add/remove/list/track)
+  \033[1;35mmood\033[0m           ➔ Log a guided mood check-in (scored 1-10)
+  \033[1;35mmood journal\033[0m   ➔ View mood history
+  \033[1;35mjournal\033[0m        ➔ Run a guided journal session (study/reflection/evening)
+  \033[1;35mjournal view\033[0m   ➔ View past journal Q&A entries
+  \033[1;35mquotes\033[0m         ➔ Motivational quotes & facts by theme
 
 \033[1;32mDaemon Management:\033[0m
-  \033[1;35mdaemon\033[0m       ➔ Check background systemd tracking service status
-  \033[1;35mrestart\033[0m      ➔ Restart background systemd tracking service
+  \033[1;35mdaemon\033[0m         ➔ Check systemd tracking service status
+  \033[1;35mrestart\033[0m        ➔ Restart background tracking service
 
-\033[1;33mExamples & Setup Guides:\033[0m
-  \033[1;32m# 1. Setup a Daily Productive Focus Target (Minimum 2 hours coding/terminal):\033[0m
+\033[1;33mExamples:\033[0m
+  shtool preset student
   shtool add --pattern "terminal" --hours 2
-
-  \033[1;32m# 2. Setup a Distraction Limit (Maximum 1 hour on social/streaming media):\033[0m
-  shtool add --pattern "youtube.com" --hours 1 --limit
-  shtool add --pattern "reddit.com" --hours 0.5 --limit
-
-  \033[1;32m# 3. View Current Goals & Progress Visual Bars:\033[0m
-  shtool goals
-  shtool status
-
-  \033[1;32m# 4. Generate Reports & Behavioral Coaching Prompts:\033[0m
-  shtool report
-  shtool weekly
-
-  \033[1;32m# 5. Adjust Privacy Levels:\033[0m
-  shtool config --privacy medium
-
-  \033[1;32m# 6. Configure Audio Alerts and Speech Notifications:\033[0m
-  shtool config --audio on
-  shtool config --speech off
-
-  \033[1;32m# 7. Manage Goals Interactively:\033[0m
-  shtool edit
-  shtool remove
-
-  \033[1;32m# 8. Log and View Mood History:\033[0m
+  shtool study
+  shtool quiz
+  shtool habit track
   shtool mood
-  shtool mood journal
-
-  \033[1;32m# 9. Get motivational quotes and scientific facts by theme (focus, discipline, resilience, learning):\033[0m
+  shtool journal
   shtool quotes --theme focus
-  shtool quotes random --theme learning
-
-  \033[1;32m# 10. Export JSON Telemetry Dump for AI Coaching Analysis:\033[0m
   shtool dump
 
 \033[1;36m============================================================\033[0m
@@ -337,54 +332,374 @@ def interactive_edit(args: List[str]) -> None:
     subprocess.run(["systemctl", "--user", "restart", "self-helper.service"], check=False)
     conn.close()
 
+def _get_weather() -> str:
+    """Fetches current weather from wttr.in (free, no API key). Returns short string or 'N/A'."""
+    import urllib.request
+    try:
+        req = urllib.request.Request("https://wttr.in/?format=%C+%t", headers={"User-Agent": "SelfHelper/1.0"})
+        with urllib.request.urlopen(req, timeout=3.0) as resp:
+            return resp.read().decode("utf-8").strip()
+    except Exception:
+        return "N/A"
+
+def _prompt_scale(prompt: str, low: int = 1, high: int = 10) -> int:
+    """Prompts user for a numeric rating within range. Returns the value."""
+    while True:
+        raw = input(f"{prompt} ({low}-{high}): ").strip()
+        if raw.isdigit() and low <= int(raw) <= high:
+            return int(raw)
+        print(f"  Please enter a number between {low} and {high}.")
+
 def interactive_mood(args: List[str]) -> None:
+    import time
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     init_settings(conn)
-    
+
     if len(args) > 0 and args[0] == "journal":
-        # Retrieve and list mood journal logs
-        cursor = conn.execute("SELECT timestamp, mood, notes FROM mood_journal ORDER BY timestamp DESC;")
+        cursor = conn.execute(
+            "SELECT timestamp, mood_score, energy_score, focus_score, mood_label, factors, gratitude, notes, weather_info "
+            "FROM mood_journal ORDER BY timestamp DESC LIMIT 20;")
         rows = cursor.fetchall()
         if not rows:
             print("\033[1;33mMood journal is empty. Use 'shtool mood' to log your first entry!\033[0m")
         else:
             print("\033[1;36m=== MOOD JOURNAL HISTORY ===\033[0m")
             for r in rows:
-                from datetime import datetime
-                try:
-                    ts_utc = datetime.fromisoformat(r["timestamp"].replace("Z", "+00:00"))
-                    ts_local = ts_utc.astimezone().strftime("%Y-%m-%d %H:%M:%S")
-                except Exception:
-                    ts_local = r["timestamp"]
-                print(f"\033[1;33m[{ts_local}]\033[0m Mood: \033[1;32m{r['mood']}\033[0m")
-                if r["notes"]:
-                    print(f"  Notes: {r['notes']}")
+                ts = r["timestamp"]
+                label = r["mood_label"] or "—"
+                print(f"\033[1;33m[{ts}]\033[0m {label} | Mood: {r['mood_score']}/10 Energy: {r['energy_score']}/10 Focus: {r['focus_score']}/10")
+                if r["factors"]: print(f"  Factors: {r['factors']}")
+                if r["gratitude"]: print(f"  Gratitude: {r['gratitude']}")
+                if r["notes"]: print(f"  Notes: {r['notes']}")
+                if r["weather_info"]: print(f"  Weather: {r['weather_info']}")
                 print("-" * 40)
         conn.close()
         return
 
-    # Log new mood entry
-    print("\033[1;36m=== MOOD LOGGER ===\033[0m")
+    print("\033[1;36m=== GUIDED MOOD CHECK-IN ===\033[0m")
+    weather = _get_weather()
+    print(f"  Current weather: {weather}")
     try:
-        mood = input("How are you feeling right now? (e.g. productive, focused, tired, anxious): ").strip()
-        if not mood:
-            print("Mood cannot be empty. Cancelled.")
-            conn.close()
-            return
-        notes = input("Add any details or notes (optional): ").strip()
+        mood_score = _prompt_scale("How is your overall mood?")
+        energy_score = _prompt_scale("How is your energy level?")
+        focus_score = _prompt_scale("How focused do you feel?")
+        mood_label = input("Describe your mood in a word (e.g. productive, anxious, calm): ").strip()
+        factors = input("What factors are affecting you? (e.g. sleep, stress, exercise): ").strip()
+        gratitude = input("Name one thing you are grateful for right now: ").strip()
+        notes = input("Any additional notes (optional): ").strip()
     except (KeyboardInterrupt, EOFError):
-        print("\nCancelled.")
-        conn.close()
-        return
+        print("\nCancelled."); conn.close(); return
 
     conn.execute(
-        "INSERT INTO mood_journal (timestamp, mood, notes) VALUES (?, ?, ?);",
-        (datetime.now(timezone.utc).isoformat(), mood, notes)
-    )
+        "INSERT INTO mood_journal (timestamp, mood_score, energy_score, focus_score, mood_label, factors, gratitude, notes, weather_info) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);",
+        (datetime.now(timezone.utc).isoformat(), mood_score, energy_score, focus_score, mood_label, factors, gratitude, notes, weather))
     conn.commit()
-    print("✓ Mood entry logged successfully!")
+    print("✓ Guided mood entry logged!")
     conn.close()
+
+# ── Presets ──────────────────────────────────────────────────
+PRESETS = {
+    "student": {
+        "goals": [
+            ("terminal", 2, False), ("youtube.com", 1.5, True), ("x.com", 0.5, True), ("reddit.com", 0.5, True),
+        ],
+        "learning_goals": ["Databases", "Algorithms", "Operating Systems"],
+        "habits": [("Review lecture notes", "academic"), ("30 min reading", "academic"), ("Exercise 20 min", "health"), ("Drink 2L water", "health")],
+    },
+    "nurse": {
+        "goals": [("youtube.com", 1, True), ("terminal", 0.5, False)],
+        "learning_goals": ["Clinical Pharmacology", "Patient Assessment"],
+        "habits": [("Review patient charts", "clinical"), ("Medication study 20 min", "academic"), ("Self-care check-in", "health"), ("Sleep 7+ hours", "health")],
+    },
+    "engineer": {
+        "goals": [("terminal", 3, False), ("youtube.com", 1, True), ("x.com", 0.5, True)],
+        "learning_goals": ["System Design", "Data Structures", "Networking"],
+        "habits": [("Code review 30 min", "professional"), ("Read technical docs", "professional"), ("Exercise 20 min", "health"), ("Journal reflection", "mindset")],
+    },
+    "hobbyist": {
+        "goals": [("youtube.com", 2, True), ("reddit.com", 1, True)],
+        "learning_goals": ["Creative Writing", "Photography"],
+        "habits": [("Practice hobby 30 min", "creative"), ("Read 20 pages", "learning"), ("Walk 15 min", "health")],
+    },
+}
+
+def apply_preset(args: List[str]) -> None:
+    if not args:
+        print("\033[1;36mAvailable presets:\033[0m student, nurse, engineer, hobbyist")
+        print("Usage: shtool preset <name>")
+        return
+    name = args[0].lower()
+    if name not in PRESETS:
+        print(f"\033[1;31mUnknown preset:\033[0m '{name}'. Choose: {', '.join(PRESETS.keys())}")
+        return
+    preset = PRESETS[name]
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA foreign_keys = ON;")
+    init_settings(conn)
+    now = datetime.now(timezone.utc).isoformat()
+    for pattern, hours, is_limit in preset["goals"]:
+        conn.execute("INSERT OR IGNORE INTO goals (app_pattern, target_seconds, is_limit, created_at) VALUES (?, ?, ?, ?);",
+                     (pattern, int(hours * 3600), 1 if is_limit else 0, now))
+    for subj in preset["learning_goals"]:
+        conn.execute("INSERT OR IGNORE INTO learning_goals (subject, created_at) VALUES (?, ?);", (subj, now))
+    for habit_name, cat in preset["habits"]:
+        conn.execute("INSERT OR IGNORE INTO habits (name, category, created_at) VALUES (?, ?, ?);", (habit_name, cat, now))
+    conn.commit(); conn.close()
+    print(f"✓ Preset '\033[1;32m{name}\033[0m' applied! Goals, learning subjects, and habits configured.")
+    subprocess.run(["systemctl", "--user", "restart", "self-helper.service"], check=False)
+
+# ── Learning Goals ───────────────────────────────────────────
+def manage_learning_goals(args: List[str]) -> None:
+    conn = sqlite3.connect(DB_PATH); conn.row_factory = sqlite3.Row; init_settings(conn)
+    sub = args[0] if args else "list"
+    if sub == "add":
+        subj = " ".join(args[1:]) if len(args) > 1 else input("Subject name: ").strip()
+        if not subj: print("Cancelled."); conn.close(); return
+        conn.execute("INSERT OR IGNORE INTO learning_goals (subject, created_at) VALUES (?, ?);",
+                     (subj, datetime.now(timezone.utc).isoformat()))
+        conn.commit(); print(f"✓ Learning goal added: \033[1;32m{subj}\033[0m")
+    elif sub == "remove":
+        cursor = conn.execute("SELECT id, subject FROM learning_goals ORDER BY subject;")
+        rows = cursor.fetchall()
+        if not rows: print("No learning goals configured."); conn.close(); return
+        for i, r in enumerate(rows, 1): print(f"  [{i}] {r['subject']}")
+        try:
+            c = input(f"Select to remove (1-{len(rows)}): ").strip()
+            if c.isdigit() and 1 <= int(c) <= len(rows):
+                conn.execute("DELETE FROM learning_goals WHERE id = ?;", (rows[int(c)-1]["id"],))
+                conn.commit(); print("✓ Removed.")
+        except (KeyboardInterrupt, EOFError): print("\nCancelled.")
+    else:
+        cursor = conn.execute("SELECT subject, created_at FROM learning_goals ORDER BY subject;")
+        rows = cursor.fetchall()
+        if not rows: print("No learning goals configured. Use: shtool learning-goal add <subject>")
+        else:
+            print("\033[1;36m=== LEARNING GOALS ===\033[0m")
+            for r in rows: print(f"  • {r['subject']} (added {r['created_at'][:10]})")
+    conn.close()
+
+# ── Study Journal ────────────────────────────────────────────
+def interactive_study(args: List[str]) -> None:
+    conn = sqlite3.connect(DB_PATH); conn.row_factory = sqlite3.Row; init_settings(conn)
+    if args and args[0] == "journal":
+        cursor = conn.execute("SELECT timestamp, subject, topic_studied, duration_minutes, understanding_rating, notes FROM study_journal ORDER BY timestamp DESC LIMIT 20;")
+        rows = cursor.fetchall()
+        if not rows: print("No study sessions logged yet.")
+        else:
+            print("\033[1;36m=== STUDY JOURNAL HISTORY ===\033[0m")
+            for r in rows:
+                print(f"\033[1;33m[{r['timestamp'][:16]}]\033[0m {r['subject']} — {r['topic_studied']} ({r['duration_minutes']}min, understood: {r['understanding_rating']}/5)")
+                if r["notes"]: print(f"  Notes: {r['notes']}")
+        conn.close(); return
+    # Guided study log
+    subjects = [r["subject"] for r in conn.execute("SELECT subject FROM learning_goals ORDER BY subject;")]
+    print("\033[1;36m=== LOG STUDY SESSION ===\033[0m")
+    if subjects:
+        for i, s in enumerate(subjects, 1): print(f"  [{i}] {s}")
+        print(f"  [{len(subjects)+1}] Other (type custom)")
+    try:
+        if subjects:
+            c = input("Select subject: ").strip()
+            if c.isdigit() and 1 <= int(c) <= len(subjects): subj = subjects[int(c)-1]
+            else: subj = input("Enter subject: ").strip()
+        else:
+            subj = input("What subject did you study? ").strip()
+        if not subj: print("Cancelled."); conn.close(); return
+        topic = input("What specific topic? ").strip()
+        dur = input("Duration in minutes: ").strip()
+        dur_min = int(dur) if dur.isdigit() else 0
+        rating = _prompt_scale("Understanding rating", 1, 5)
+        notes = input("Any notes (optional): ").strip()
+    except (KeyboardInterrupt, EOFError): print("\nCancelled."); conn.close(); return
+    conn.execute("INSERT INTO study_journal (timestamp, subject, topic_studied, duration_minutes, understanding_rating, notes) VALUES (?, ?, ?, ?, ?, ?);",
+                 (datetime.now(timezone.utc).isoformat(), subj, topic, dur_min, rating, notes))
+    conn.commit(); print("✓ Study session logged!"); conn.close()
+
+# ── Questions Catalog & Quiz ────────────────────────────────
+def manage_questions(args: List[str]) -> None:
+    conn = sqlite3.connect(DB_PATH); conn.row_factory = sqlite3.Row; init_settings(conn)
+    sub = args[0] if args else "list"
+    if sub == "add":
+        subj = input("Subject for this question: ").strip()
+        q = input("Question: ").strip()
+        a = input("Answer: ").strip()
+        if not (subj and q): print("Subject and question required."); conn.close(); return
+        conn.execute("INSERT INTO questions_catalog (subject, question, answer, created_at) VALUES (?, ?, ?, ?);",
+                     (subj, q, a, datetime.now(timezone.utc).isoformat()))
+        conn.commit(); print("✓ Question added to catalog!")
+    elif sub == "remove":
+        cursor = conn.execute("SELECT id, subject, question FROM questions_catalog ORDER BY subject;")
+        rows = cursor.fetchall()
+        if not rows: print("No questions in catalog."); conn.close(); return
+        for i, r in enumerate(rows, 1): print(f"  [{i}] [{r['subject']}] {r['question'][:60]}")
+        try:
+            c = input(f"Remove (1-{len(rows)}): ").strip()
+            if c.isdigit() and 1 <= int(c) <= len(rows):
+                conn.execute("DELETE FROM questions_catalog WHERE id = ?;", (rows[int(c)-1]["id"],))
+                conn.commit(); print("✓ Removed.")
+        except (KeyboardInterrupt, EOFError): print("\nCancelled.")
+    else:
+        cursor = conn.execute("SELECT subject, question, confidence_level, times_reviewed FROM questions_catalog ORDER BY subject, confidence_level;")
+        rows = cursor.fetchall()
+        if not rows: print("No questions yet. Use: shtool question add")
+        else:
+            print("\033[1;36m=== QUESTIONS CATALOG ===\033[0m")
+            for r in rows: print(f"  [{r['subject']}] {r['question'][:50]} | Confidence: {r['confidence_level']}/5 | Reviews: {r['times_reviewed']}")
+    conn.close()
+
+def run_quiz(args: List[str]) -> None:
+    import time
+    conn = sqlite3.connect(DB_PATH); conn.row_factory = sqlite3.Row; init_settings(conn)
+    cursor = conn.execute("SELECT id, subject, question, answer, confidence_level FROM questions_catalog ORDER BY confidence_level ASC, RANDOM() LIMIT 5;")
+    cards = cursor.fetchall()
+    if not cards: print("No flashcards available. Use: shtool question add"); conn.close(); return
+    print(f"\033[1;36m=== SELF-TEST QUIZ ({len(cards)} questions) ===\033[0m\n")
+    for idx, card in enumerate(cards, 1):
+        print(f"\033[1;33mQ{idx}.\033[0m [{card['subject']}] {card['question']}")
+        t0 = time.time()
+        try: input("  Press Enter to reveal answer...")
+        except (KeyboardInterrupt, EOFError): print("\nQuiz ended early."); conn.close(); return
+        elapsed = round(time.time() - t0, 1)
+        print(f"  \033[1;32mAnswer:\033[0m {card['answer'] or '(no answer stored)'}")
+        new_conf = _prompt_scale("  Rate your confidence now", 1, 5)
+        conn.execute("UPDATE questions_catalog SET confidence_level = ?, times_reviewed = times_reviewed + 1, last_reviewed = ? WHERE id = ?;",
+                     (new_conf, datetime.now(timezone.utc).isoformat(), card["id"]))
+        conn.commit()
+        print(f"  (Took {elapsed}s)\n")
+    print("✓ Quiz session complete!"); conn.close()
+
+# ── Habits ───────────────────────────────────────────────────
+def manage_habits(args: List[str]) -> None:
+    conn = sqlite3.connect(DB_PATH); conn.row_factory = sqlite3.Row; init_settings(conn)
+    sub = args[0] if args else "list"
+    today = datetime.now().strftime("%Y-%m-%d")
+    if sub == "add":
+        name = " ".join(args[1:]) if len(args) > 1 else input("Habit name: ").strip()
+        cat = input("Category (general/health/academic/professional/creative): ").strip() or "general"
+        if not name: print("Cancelled."); conn.close(); return
+        conn.execute("INSERT OR IGNORE INTO habits (name, category, created_at) VALUES (?, ?, ?);",
+                     (name, cat, datetime.now(timezone.utc).isoformat()))
+        conn.commit(); print(f"✓ Habit added: \033[1;32m{name}\033[0m")
+    elif sub == "remove":
+        cursor = conn.execute("SELECT id, name FROM habits ORDER BY name;"); rows = cursor.fetchall()
+        if not rows: print("No habits configured."); conn.close(); return
+        for i, r in enumerate(rows, 1): print(f"  [{i}] {r['name']}")
+        try:
+            c = input(f"Remove (1-{len(rows)}): ").strip()
+            if c.isdigit() and 1 <= int(c) <= len(rows):
+                conn.execute("DELETE FROM habits WHERE id = ?;", (rows[int(c)-1]["id"],))
+                conn.commit(); print("✓ Removed.")
+        except (KeyboardInterrupt, EOFError): print("\nCancelled.")
+    elif sub == "track":
+        cursor = conn.execute("SELECT id, name FROM habits ORDER BY name;"); habits = cursor.fetchall()
+        if not habits: print("No habits to track. Use: shtool habit add"); conn.close(); return
+        print(f"\033[1;36m=== DAILY HABIT TRACKER ({today}) ===\033[0m")
+        for h in habits:
+            log = conn.execute("SELECT status FROM habit_logs WHERE habit_id = ? AND date = ?;", (h["id"], today)).fetchone()
+            done = log["status"] if log else 0
+            mark = "✓" if done else "✗"
+            color = "\033[1;32m" if done else "\033[1;31m"
+            print(f"  {color}[{mark}]\033[0m {h['name']}")
+        try:
+            toggle = input("\nEnter habit number to toggle (or 'done'): ").strip()
+            while toggle.lower() != "done" and toggle:
+                if toggle.isdigit() and 1 <= int(toggle) <= len(habits):
+                    hid = habits[int(toggle)-1]["id"]
+                    old = conn.execute("SELECT status FROM habit_logs WHERE habit_id = ? AND date = ?;", (hid, today)).fetchone()
+                    new_status = 0 if (old and old["status"]) else 1
+                    conn.execute("INSERT OR REPLACE INTO habit_logs (habit_id, date, status) VALUES (?, ?, ?);", (hid, today, new_status))
+                    conn.commit()
+                    st = "✓ Done" if new_status else "✗ Undone"
+                    print(f"  {habits[int(toggle)-1]['name']} → {st}")
+                toggle = input("Toggle another (or 'done'): ").strip()
+        except (KeyboardInterrupt, EOFError): pass
+        print("✓ Habit tracking updated!")
+    else:
+        cursor = conn.execute("SELECT id, name, category FROM habits ORDER BY category, name;"); rows = cursor.fetchall()
+        if not rows: print("No habits yet. Use: shtool habit add")
+        else:
+            print("\033[1;36m=== CONFIGURED HABITS ===\033[0m")
+            for r in rows: print(f"  • [{r['category']}] {r['name']}")
+    conn.close()
+
+# ── Guided Journal Q&A ──────────────────────────────────────
+JOURNAL_TEMPLATES = {
+    "study": [
+        ("What subject did you focus on today?", "text"),
+        ("What specific topic or concept did you cover?", "text"),
+        ("How confident do you feel about this topic?", "scale_1_10"),
+        ("What was the most challenging part?", "text"),
+        ("What will you review next?", "text"),
+    ],
+    "reflection": [
+        ("What went well today?", "text"),
+        ("What could have gone better?", "text"),
+        ("Rate your productivity today", "scale_1_10"),
+        ("What distracted you the most?", "text"),
+        ("What is one thing you want to improve tomorrow?", "text"),
+    ],
+    "evening": [
+        ("Rate your overall day", "scale_1_10"),
+        ("Did you achieve your main goal for today?", "text"),
+        ("Rate your stress level", "scale_1_10"),
+        ("What are you grateful for?", "text"),
+        ("Any thoughts before sleep?", "text"),
+    ],
+}
+
+def run_guided_journal(args: List[str]) -> None:
+    import time, uuid
+    conn = sqlite3.connect(DB_PATH); conn.row_factory = sqlite3.Row; init_settings(conn)
+
+    if args and args[0] == "view":
+        cursor = conn.execute("SELECT session_id, timestamp, journal_type, question, response_type, response_value, time_taken_seconds FROM journal_qa ORDER BY timestamp DESC LIMIT 40;")
+        rows = cursor.fetchall()
+        if not rows: print("No journal entries yet. Use: shtool journal"); conn.close(); return
+        print("\033[1;36m=== JOURNAL Q&A HISTORY ===\033[0m")
+        current_session = None
+        for r in rows:
+            if r["session_id"] != current_session:
+                current_session = r["session_id"]
+                print(f"\n\033[1;33m--- Session [{r['journal_type'].upper()}] {r['timestamp'][:16]} ---\033[0m")
+            rt = f"({r['response_type']})" if r["response_type"] == "scale_1_10" else ""
+            print(f"  Q: {r['question']}")
+            print(f"  A: \033[1;32m{r['response_value']}\033[0m {rt} [{r['time_taken_seconds']:.1f}s]")
+        conn.close(); return
+
+    jtype = args[0] if args and args[0] in JOURNAL_TEMPLATES else None
+    if not jtype:
+        print("\033[1;36m=== GUIDED JOURNAL ===\033[0m")
+        print("Choose a journal type:")
+        types = list(JOURNAL_TEMPLATES.keys())
+        for i, t in enumerate(types, 1): print(f"  [{i}] {t.title()}")
+        try:
+            c = input("Select: ").strip()
+            if c.isdigit() and 1 <= int(c) <= len(types): jtype = types[int(c)-1]
+            else: print("Invalid selection."); conn.close(); return
+        except (KeyboardInterrupt, EOFError): print("\nCancelled."); conn.close(); return
+
+    questions = JOURNAL_TEMPLATES[jtype]
+    session_id = str(uuid.uuid4())[:8]
+    now_ts = datetime.now(timezone.utc).isoformat()
+    print(f"\n\033[1;36m=== {jtype.upper()} JOURNAL ===\033[0m")
+    try:
+        for q_text, q_type in questions:
+            t0 = time.time()
+            if q_type == "scale_1_10":
+                val = str(_prompt_scale(q_text))
+            else:
+                val = input(f"{q_text} ").strip()
+            elapsed = round(time.time() - t0, 2)
+            conn.execute("INSERT INTO journal_qa (session_id, timestamp, journal_type, question, response_type, response_value, time_taken_seconds) VALUES (?, ?, ?, ?, ?, ?, ?);",
+                         (session_id, now_ts, jtype, q_text, q_type, val, elapsed))
+    except (KeyboardInterrupt, EOFError):
+        print("\nJournal ended early.")
+    conn.commit()
+    print("✓ Journal session saved!")
+    conn.close()
+
 
 def export_database_dump() -> None:
     """Extracts goals, tracking history, app usage, and web domains visited into a unified JSON structure based on privacy configuration."""
@@ -399,6 +714,10 @@ def export_database_dump() -> None:
     goals = []
     usage = []
     moods = []
+    studies = []
+    habits_data = []
+    questions_data = []
+    journal_qa_data = []
     privacy_level = "low"
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -406,19 +725,24 @@ def export_database_dump() -> None:
         init_settings(conn)
         privacy_level = get_setting(conn, "privacy_level", "low")
         
-        goals_cursor = conn.execute("SELECT app_pattern, target_seconds, is_limit, created_at FROM goals")
-        goals = [dict(row) for row in goals_cursor.fetchall()]
+        goals = [dict(r) for r in conn.execute("SELECT app_pattern, target_seconds, is_limit, created_at FROM goals")]
         for g in goals:
             g["target_hours"] = round(g["target_seconds"] / 3600.0, 2)
             g["is_limit"] = bool(g["is_limit"])
 
-        usage_cursor = conn.execute("SELECT date, app_pattern, duration_seconds FROM daily_accumulated_time ORDER BY date DESC, duration_seconds DESC")
-        usage = [dict(row) for row in usage_cursor.fetchall()]
+        usage = [dict(r) for r in conn.execute("SELECT date, app_pattern, duration_seconds FROM daily_accumulated_time ORDER BY date DESC, duration_seconds DESC")]
         for u in usage:
             u["duration_hours"] = round(u["duration_seconds"] / 3600.0, 3)
 
-        moods_cursor = conn.execute("SELECT timestamp, mood, notes FROM mood_journal ORDER BY timestamp DESC")
-        moods = [dict(row) for row in moods_cursor.fetchall()]
+        moods = [dict(r) for r in conn.execute("SELECT timestamp, mood_score, energy_score, focus_score, mood_label, factors, gratitude, notes, weather_info FROM mood_journal ORDER BY timestamp DESC")]
+        studies = [dict(r) for r in conn.execute("SELECT timestamp, subject, topic_studied, duration_minutes, understanding_rating, notes FROM study_journal ORDER BY timestamp DESC")]
+        
+        today = datetime.now().strftime("%Y-%m-%d")
+        habit_rows = conn.execute("SELECT h.name, h.category, COALESCE(l.status, 0) as done FROM habits h LEFT JOIN habit_logs l ON h.id = l.habit_id AND l.date = ? ORDER BY h.category, h.name;", (today,)).fetchall()
+        habits_data = [dict(r) for r in habit_rows]
+        
+        questions_data = [dict(r) for r in conn.execute("SELECT subject, question, answer, confidence_level, times_reviewed, last_reviewed FROM questions_catalog ORDER BY subject")]
+        journal_qa_data = [dict(r) for r in conn.execute("SELECT session_id, timestamp, journal_type, question, response_type, response_value, time_taken_seconds FROM journal_qa ORDER BY timestamp DESC LIMIT 100")]
 
         conn.close()
     except Exception as e:
@@ -504,20 +828,19 @@ def export_database_dump() -> None:
     # 5. Build export payload
     payload = {
         "dump_timestamp": datetime.now(timezone.utc).isoformat(),
-        "schema_version": "1.2",
+        "schema_version": "2.0",
         "privacy_level": privacy_level,
         "goals": goals,
         "historical_goal_usage": usage,
         "mood_journal": moods,
+        "study_journal": studies,
+        "habits_today": habits_data,
+        "questions_catalog": questions_data,
+        "journal_qa": journal_qa_data,
         "daily_app_usage": [{"app": app, "seconds": round(sec, 1), "hours": round(sec/3600.0, 3)} for app, sec in sorted_apps],
         "daily_web_domain_usage": [{"domain": dom, "seconds": round(sec, 1), "hours": round(sec/3600.0, 3)} for dom, sec in sorted_domains],
         "daily_web_url_usage": [
-            {
-                "url": url,
-                "title": info["title"],
-                "seconds": round(info["duration"], 1),
-                "hours": round(info["duration"]/3600.0, 3)
-            }
+            {"url": url, "title": info["title"], "seconds": round(info["duration"], 1), "hours": round(info["duration"]/3600.0, 3)}
             for url, info in sorted_urls
         ]
     }
@@ -533,31 +856,23 @@ def export_database_dump() -> None:
         print(f"  • '{g['app_pattern']}' ({type_str}) target: {g['target_hours']}h")
 
     print("\n\033[1;33m[2] Daily Log Entries (Goal Matching):\033[0m")
-    if not usage:
-        print("  No usage records logged yet.")
+    if not usage: print("  No usage records logged yet.")
     else:
-        for u in usage:
-            print(f"  • [{u['date']}] '{u['app_pattern']}': {u['duration_hours']:.3f}h ({int(u['duration_seconds'] // 60)}m)")
+        for u in usage: print(f"  • [{u['date']}] '{u['app_pattern']}': {u['duration_hours']:.3f}h ({int(u['duration_seconds'] // 60)}m)")
 
     if privacy_level != "high":
-        print("\n\033[1;33m[3] Detailed Website Domain Usage Today (Firefox Extension):\033[0m")
-        if not sorted_domains:
-            print("  No website domains logged today.")
+        print("\n\033[1;33m[3] Website Domain Usage Today:\033[0m")
+        if not sorted_domains: print("  No website domains logged today.")
         else:
-            for dom, sec in sorted_domains[:15]:
-                print(f"  • '{dom}': {sec/3600.0:.3f}h ({int(sec // 60)}m {int(sec % 60)}s)")
-
-        print("\n\033[1;33m[4] Detailed Application Window Usage Today:\033[0m")
-        if not sorted_apps:
-            print("  No active application windows logged today.")
+            for dom, sec in sorted_domains[:15]: print(f"  • '{dom}': {sec/3600.0:.3f}h ({int(sec // 60)}m {int(sec % 60)}s)")
+        print("\n\033[1;33m[4] Application Window Usage Today:\033[0m")
+        if not sorted_apps: print("  No active application windows logged today.")
         else:
-            for app, sec in sorted_apps[:15]:
-                print(f"  • '{app}': {sec/3600.0:.3f}h ({int(sec // 60)}m {int(sec % 60)}s)")
+            for app, sec in sorted_apps[:15]: print(f"  • '{app}': {sec/3600.0:.3f}h ({int(sec // 60)}m {int(sec % 60)}s)")
 
     if privacy_level == "low":
-        print("\n\033[1;33m[5] Detailed Website URL Usage Today:\033[0m")
-        if not sorted_urls:
-            print("  No website URLs logged today.")
+        print("\n\033[1;33m[5] Website URL Usage Today:\033[0m")
+        if not sorted_urls: print("  No website URLs logged today.")
         else:
             for url, info in sorted_urls[:15]:
                 sec = info["duration"]
@@ -565,11 +880,38 @@ def export_database_dump() -> None:
                 print(f"  • '{title}'\n    URL: {url}\n    Time: {sec/3600.0:.3f}h ({int(sec // 60)}m {int(sec % 60)}s)")
 
     print("\n\033[1;33m[6] Mood Journal Entries:\033[0m")
-    if not moods:
-        print("  No mood entries logged yet.")
+    if not moods: print("  No mood entries logged yet.")
     else:
-        for m in moods[:15]:
-            print(f"  • [{m['timestamp']}] Mood: \033[1;32m{m['mood']}\033[0m | Notes: {m['notes'] or 'None'}")
+        for m in moods[:10]:
+            label = m.get("mood_label") or "—"
+            print(f"  • [{m['timestamp'][:16]}] {label} | M:{m.get('mood_score','?')}/10 E:{m.get('energy_score','?')}/10 F:{m.get('focus_score','?')}/10")
+
+    print("\n\033[1;33m[7] Study Journal:\033[0m")
+    if not studies: print("  No study sessions logged.")
+    else:
+        for s in studies[:10]: print(f"  • [{s['timestamp'][:16]}] {s['subject']} — {s['topic_studied']} ({s['duration_minutes']}min, {s['understanding_rating']}/5)")
+
+    print("\n\033[1;33m[8] Habits Today:\033[0m")
+    if not habits_data: print("  No habits configured.")
+    else:
+        for h in habits_data:
+            mark = "✓" if h["done"] else "✗"
+            print(f"  [{mark}] [{h['category']}] {h['name']}")
+
+    print("\n\033[1;33m[9] Questions Catalog:\033[0m")
+    if not questions_data: print("  No flashcards.")
+    else:
+        for q in questions_data[:10]: print(f"  • [{q['subject']}] {q['question'][:50]} | Conf: {q['confidence_level']}/5 | Reviews: {q['times_reviewed']}")
+
+    print("\n\033[1;33m[10] Journal Q&A Sessions:\033[0m")
+    if not journal_qa_data: print("  No journal sessions.")
+    else:
+        sessions_shown = set()
+        for j in journal_qa_data[:20]:
+            if j["session_id"] not in sessions_shown:
+                sessions_shown.add(j["session_id"])
+                print(f"  --- [{j['journal_type'].upper()}] {j['timestamp'][:16]} ---")
+            print(f"    Q: {j['question'][:50]} → A: {j['response_value'][:40]} [{j['time_taken_seconds']:.1f}s]")
 
     # Save to output file
     out_path = Path.home() / "self_helper_dump.json"
@@ -651,8 +993,22 @@ def main() -> None:
         interactive_remove(args)
     elif cmd == "edit":
         interactive_edit(args)
+    elif cmd == "preset":
+        apply_preset(args)
     elif cmd == "mood":
         interactive_mood(args)
+    elif cmd == "study":
+        interactive_study(args)
+    elif cmd in ("learning-goal", "lg"):
+        manage_learning_goals(args)
+    elif cmd == "question":
+        manage_questions(args)
+    elif cmd == "quiz":
+        run_quiz(args)
+    elif cmd == "habit":
+        manage_habits(args)
+    elif cmd == "journal":
+        run_guided_journal(args)
     elif cmd in ("quotes", "-quotes", "--quotes"):
         theme_val = None
         for idx, arg in enumerate(args):

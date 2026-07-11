@@ -243,12 +243,84 @@ class GoalStore:
                     value TEXT
                 );
             """)
+            # --- Mood Journal (guided, structured) ---
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS mood_journal (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp TEXT NOT NULL,
-                    mood TEXT NOT NULL,
+                    mood_score INTEGER,
+                    energy_score INTEGER,
+                    focus_score INTEGER,
+                    mood_label TEXT,
+                    factors TEXT,
+                    gratitude TEXT,
+                    notes TEXT,
+                    weather_info TEXT
+                );
+            """)
+            # --- Learning Goals ---
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS learning_goals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    subject TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL
+                );
+            """)
+            # --- Study Journal ---
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS study_journal (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    topic_studied TEXT NOT NULL,
+                    duration_minutes INTEGER DEFAULT 0,
+                    understanding_rating INTEGER DEFAULT 3,
                     notes TEXT
+                );
+            """)
+            # --- Flashcard / Questions Catalog ---
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS questions_catalog (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    subject TEXT NOT NULL,
+                    question TEXT NOT NULL,
+                    answer TEXT,
+                    confidence_level INTEGER DEFAULT 1,
+                    times_reviewed INTEGER DEFAULT 0,
+                    last_reviewed TEXT,
+                    created_at TEXT NOT NULL
+                );
+            """)
+            # --- Journal Q&A Schema (guided prompts with typed responses) ---
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS journal_qa (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    journal_type TEXT NOT NULL,
+                    question TEXT NOT NULL,
+                    response_type TEXT NOT NULL,
+                    response_value TEXT NOT NULL,
+                    time_taken_seconds REAL DEFAULT 0.0
+                );
+            """)
+            # --- Habits ---
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS habits (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    category TEXT DEFAULT 'general',
+                    created_at TEXT NOT NULL
+                );
+            """)
+            # --- Habit Logs ---
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS habit_logs (
+                    habit_id INTEGER NOT NULL,
+                    date TEXT NOT NULL,
+                    status INTEGER DEFAULT 0,
+                    PRIMARY KEY (habit_id, date),
+                    FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE CASCADE
                 );
             """)
             conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('privacy_level', 'low');")
