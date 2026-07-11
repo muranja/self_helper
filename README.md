@@ -70,6 +70,97 @@ source ~/.bashrc
 
 ---
 
+## 📖 Extensive Daily Workflow & Usage Guide
+
+To get the absolute most out of the Self-Helper ecosystem, follow this comprehensive daily operation guide. This walkthrough demonstrates how the CLI, background daemon, and AI coaching interact throughout your day.
+
+### 0. Verify & Manage the Background Service
+After running `install.sh`, the background telemetry daemon (`self-helper.service`) runs automatically via systemd. You can manage and check its status anytime:
+```bash
+# Check if the service is actively logging your windows and tabs
+shtool status
+
+# Restart the service (e.g., after modifying global configuration)
+shtool restart
+```
+
+---
+
+### Step 1: Morning Check-In & Setting Intentions
+Start your day by establishing your persona, logging your baseline energy/focus, and checking today's limits.
+
+```bash
+# 1. Apply a lifestyle preset (auto-loads tailored habits and limits)
+shtool preset engineer    # Options: student, nurse, engineer, hobbyist
+
+# 2. Log your morning mood and focus on a 1-10 scale (automatically captures local weather!)
+shtool mood
+
+# 3. View your active goals and boundaries for the day
+shtool goals
+```
+
+---
+
+### Step 2: Entering Deep Work (Pomodoro + Active Mitigation)
+When it is time to study or code without distraction, trigger the native focus timer.
+
+```bash
+# Start a 25-minute Pomodoro Deep Work session
+shtool focus 25
+```
+**What happens:**
+- A live countdown timer renders in your terminal.
+- **Active Mitigation**: Every 5 seconds, the system scans for running applications matching your configured `LIMIT` goals (`firefox`, `x.com`, etc.) and automatically terminates them (`pkill`).
+- When the timer completes, an audio chime plays (`paplay`) and you are prompted to log the session directly into your `study_journal`.
+
+---
+
+### Step 3: Active Recall & Spaced Repetition (SRS)
+Review your flashcards when your cognitive energy is fresh.
+
+```bash
+# Add new questions as you read documentation or textbooks
+shtool question add
+
+# Run your Spaced Repetition self-test
+shtool quiz
+```
+**What happens:**
+- The SuperMemo-2 algorithm calculates which flashcards are **due today** based on your past confidence scores (`1-5`).
+- Overdue questions appear first; answering with high confidence (`4-5`) pushes the next review interval days or weeks into the future.
+
+---
+
+### Step 4: Mid-Day Diagnostic & Local AI Coaching
+At mid-day or whenever you feel your focus slipping, consult your local offline AI coach (`smollm2:360m`).
+
+```bash
+# Get your daily goal progress + 3 actionable AI coaching interventions
+shtool report --ai
+```
+**What happens:**
+- Self-Helper queries your local SQLite database and generates a structured JSON telemetry dump (`~/.local/share/self_helper/self_helper_dump.json`).
+- Your local Ollama instance (`smollm2:360m`) reads the payload locally—no data ever leaves your machine—and outputs 3 direct, hyper-specific bullet points addressing your exact screen time and habits.
+
+---
+
+### Step 5: Evening Reflection & Habit Ticking
+Wrap up your evening by logging your habits and reflecting on what you learned.
+
+```bash
+# 1. Interactive daily habit check-in (toggle done/undone)
+shtool habit track
+
+# 2. Run a guided evening reflection journal session
+shtool journal
+
+# 3. Need a quick boost or random quote before logging off?
+shtool quotes --theme focus
+```
+
+---
+
 ## Command Reference (`shtool`)
 
 | Category | Command | Description |
