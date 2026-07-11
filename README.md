@@ -90,15 +90,29 @@ source ~/.bashrc
 
 ---
 
+## 🤖 AI Coaching Skill & Telemetry Ingestion
+
+Self-Helper features a native **AI Coaching Skill Architecture** designed for ultra-low resource offline inference (`smollm2:360m`). When running `shtool report --ai` or piping `shtool dump` into external agentic workflows (`llm`, `aichat`, or custom scripts), the AI ingests a comprehensive 10-dimension JSON payload covering:
+
+1. **Boundary & Limit Adherence**: Screen-time usage across apps and domains vs. configured `LIMIT` / `TARGET` goals (`is_limit`).
+2. **Spaced Repetition Pulse**: Overdue flashcard review checks (`next_review_date`) and confidence level trajectories.
+3. **Behavioral & Mood Correlations**: Cross-referencing `study_journal`, `habit_logs`, and `mood_journal` check-ins to identify burnout or distraction fatigue.
+
+For the exact system prompt rules, schema breakdowns, and guidance on extending this skill with custom models, see our official specification:
+👉 **[doc/AI_COACHING_SKILL.md](doc/AI_COACHING_SKILL.md)**
+
+---
+
 ## Future Roadmap
 
-We are constantly evolving to make Self-Helper the ultimate productivity OS. Upcoming features include:
+We are constantly evolving to make Self-Helper the ultimate productivity OS. Our progress:
 
-- **True Spaced Repetition System (SRS)**: Upgrading `shtool quiz` with an algorithmic scheduler (like SuperMemo-2) to optimize flashcard review times based on past confidence scores.
-- **Native Pomodoro & Deep Work Mode**: A `shtool focus` command that starts a timer and actively manipulates system configurations (like `/etc/hosts`) to aggressively block distracting domains during study sessions.
-- **Local AI Coaching Integration**: Integrating local LLMs (via Ollama) directly into `shtool report` to provide dynamic, conversational coaching advice based on your telemetry without exporting data externally.
-- **Terminal User Interface (TUI)**: Building a rich, persistent terminal dashboard for real-time visualization of habits, progress bars, and journal entries.
-- **Gamification & Streaks**: Persistent tracking of goal streaks (e.g., "7-day coding streak") to boost dopamine and consistency.
+- ✅ **True Spaced Repetition System (SRS)**: Algorithmic flashcard scheduling (SuperMemo-2) via `shtool quiz`.
+- ✅ **Native Pomodoro & Deep Work Mode**: Terminal countdown (`shtool focus`) with active process mitigation (`pkill`) and auto-logging to your study journal.
+- ✅ **Local AI Coaching Integration**: Sub-250MB offline coaching (`smollm2:360m`) via `shtool report --ai` providing 3 actionable micro-interventions.
+- 🚧 **Automated Background Mitigation**: Implicit daemon-based application enforcement.
+- 🚧 **Gamification & Streaks**: Persistent tracking of goal streaks (e.g., "7-day coding streak") to boost consistency.
+- 🚧 **Terminal User Interface (TUI)**: Building a rich, persistent terminal dashboard for real-time visualization of habits, progress bars, and journal entries.
 
 ---
 
