@@ -118,27 +118,52 @@ class ActivityWatchClient:
                 data = events[0].get("data", {})
                 state["is_afk"] = data.get("status", "unknown") == "afk"
 
-        # If it is a browser application, overlay domain-level telemetry
+        # If it is a browser application, or if the active app is reported as "unknown" (common under Wayland)
+        # while there is active browsing activity, overlay domain-level telemetry.
         browser_apps = ("firefox", "chrome", "chromium", "brave", "opera", "google-chrome")
-        if state["app"].lower() in browser_apps and web_bucket:
+        is_browser = state["app"].lower() in browser_apps
+        
+        recent_web_event = None
+        if web_bucket:
             web_events = self._get(f"buckets/{web_bucket}/events?limit=1")
             if web_events and isinstance(web_events, list) and len(web_events) > 0:
-                web_data = web_events[0].get("data", {})
-                url = web_data.get("url", "")
-                title = web_data.get("title", "")
-                if url:
-                    try:
-                        from urllib.parse import urlparse
-                        domain = urlparse(url).netloc
-                        if domain.startswith("www."):
-                            domain = domain[4:]
-                    except Exception:
-                        domain = ""
-                    
-                    if domain:
-                        state["app"] = f"{state['app']} ({domain})"
-                    if title:
-                        state["title"] = title
+                recent_web_event = web_events[0]
+
+        # Wayland Fallback: If window tracking yields "unknown", check if browser tab event was logged recently
+        if state["app"].lower() == "unknown" and recent_web_event:
+            event_time = recent_web_event.get("timestamp", "")
+            if event_time:
+                try:
+                    ts_str = event_time.replace("Z", "+00:00")
+                    dt = datetime.fromisoformat(ts_str)
+                    now = datetime.now(timezone.utc)
+                    age = (now - dt).total_seconds()
+                    # If a tab change or navigation occurred in the last 15 seconds, assume browser is active
+                    if 0 <= age <= 15.0:
+                        is_browser = True
+                        state["app"] = "firefox"  # Default fallback browser identifier
+                except Exception as e:
+                    logger.debug(f"Failed to calculate web event age: {e}")
+
+        if is_browser and recent_web_event:
+            web_data = recent_web_event.get("data", {})
+            url = web_data.get("url", "")
+            title = web_data.get("title", "")
+            if url:
+                try:
+                    from urllib.parse import urlparse
+                    domain = urlparse(url).netloc
+                    if domain.startswith("www."):
+                        domain = domain[4:]
+                except Exception:
+                    domain = ""
+                
+                if domain:
+                    # Maintain name of browser if detected, else fallback
+                    browser_name = "firefox" if state["app"].lower() == "unknown" else state["app"]
+                    state["app"] = f"{browser_name} ({domain})"
+                if title:
+                    state["title"] = title
 
         return state
 
