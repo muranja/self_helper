@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=ActivityWatch Xhost Authorization
+Exec=xhost +local:
+Icon=dialog-information
+Terminal=false
+Categories=System;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true

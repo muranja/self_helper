@@ -1,0 +1,21 @@
+# Python Cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ruff_cache/
+
+# Local databases and locks
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Output reports & dumps
+widget.txt
+self_helper_dump.json
+
+# User caches
+.cache/
+logs/
