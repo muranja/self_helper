@@ -118,19 +118,17 @@ class ActivityWatchClient:
                 data = events[0].get("data", {})
                 state["is_afk"] = data.get("status", "unknown") == "afk"
 
-        # If it is a browser application, or if the active app is reported as "unknown" (common under Wayland)
-        # while there is active browsing activity, overlay domain-level telemetry.
+        # 1. Fetch browser and terminal heartbeats for active tracking
         browser_apps = ("firefox", "chrome", "chromium", "brave", "opera", "google-chrome")
-        is_browser = state["app"].lower() in browser_apps
-        
         recent_web_event = None
         if web_bucket:
             web_events = self._get(f"buckets/{web_bucket}/events?limit=1")
             if web_events and isinstance(web_events, list) and len(web_events) > 0:
                 recent_web_event = web_events[0]
 
-        # Wayland Fallback: If window tracking yields "unknown", check if browser tab event was logged recently
-        if state["app"].lower() == "unknown" and recent_web_event:
+        # Evaluate if web activity is extremely recent (last 15 seconds)
+        web_event_is_recent = False
+        if recent_web_event:
             event_time = recent_web_event.get("timestamp", "")
             if event_time:
                 try:
@@ -138,13 +136,53 @@ class ActivityWatchClient:
                     dt = datetime.fromisoformat(ts_str)
                     now = datetime.now(timezone.utc)
                     age = (now - dt).total_seconds()
-                    # If a tab change or navigation occurred in the last 15 seconds, assume browser is active
                     if 0 <= age <= 15.0:
-                        is_browser = True
-                        state["app"] = "firefox"  # Default fallback browser identifier
+                        web_event_is_recent = True
                 except Exception as e:
                     logger.debug(f"Failed to calculate web event age: {e}")
 
+        # Evaluate pseudo-terminal (PTS) activity (last 15 seconds)
+        pts_active = False
+        user_uid = os.getuid()
+        try:
+            pts_dir = Path("/dev/pts")
+            if pts_dir.exists():
+                import time
+                curr_time = time.time()
+                for pts_file in pts_dir.iterdir():
+                    if pts_file.name.isdigit():
+                        stat = pts_file.stat()
+                        if stat.st_uid == user_uid:
+                            if 0 <= (curr_time - stat.st_mtime) <= 15.0:
+                                pts_active = True
+                                break
+        except Exception as e:
+            logger.debug(f"Failed to verify pseudo-terminal activity: {e}")
+
+        # 2. Resolve Active Application & AFK Override
+        is_browser = False
+        if web_event_is_recent:
+            # Active browser tab event takes precedence
+            state["app"] = "firefox"
+            state["is_afk"] = False
+            is_browser = True
+        elif pts_active:
+            # Active pseudo-terminal takes second precedence
+            state["app"] = "terminal"
+            state["title"] = "Interactive shell session"
+            state["is_afk"] = False
+        elif state["app"].lower() in browser_apps:
+            # Fallback to local window if it explicitly states browser is active
+            state["is_afk"] = False
+            is_browser = True
+        elif state["app"].lower() != "unknown" and not state["is_afk"]:
+            # Local GUI activity detected (e.g. scrcpy)
+            pass
+        else:
+            # No recent activity detected
+            pass
+
+        # 3. Apply Domain Level Overlay if user is in browser
         if is_browser and recent_web_event:
             web_data = recent_web_event.get("data", {})
             url = web_data.get("url", "")
@@ -159,7 +197,7 @@ class ActivityWatchClient:
                     domain = ""
                 
                 if domain:
-                    # Maintain name of browser if detected, else fallback
+                    # Append domain identifier
                     browser_name = "firefox" if state["app"].lower() == "unknown" else state["app"]
                     state["app"] = f"{browser_name} ({domain})"
                 if title:
@@ -286,9 +324,125 @@ class IntegrationDaemon:
         except Exception as e:
             logger.debug(f"Failed to issue notify-send: {e}")
 
+    def _is_today_local(self, timestamp_str: str) -> bool:
+        """Determines if the ActivityWatch event timestamp belongs to today in local time."""
+        try:
+            ts_str = timestamp_str.replace("Z", "+00:00")
+            dt_utc = datetime.fromisoformat(ts_str)
+            dt_local = dt_utc.astimezone()
+            return dt_local.date() == datetime.now().date()
+        except Exception:
+            try:
+                today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                return timestamp_str.split("T")[0] == today_utc
+            except Exception:
+                return False
+
+    def _parse_event_interval(self, event: dict) -> Optional[tuple]:
+        """Extracts the start and end UNIX timestamps for an event."""
+        try:
+            ts_str = event["timestamp"].replace("Z", "+00:00")
+            start = datetime.fromisoformat(ts_str).timestamp()
+            duration = event.get("duration", 0.0)
+            return start, start + duration
+        except Exception:
+            return None
+
+    def _sync_activitywatch_time(self, today_str: str) -> None:
+        """Queries ActivityWatch API directly to sum events and update the local database cache."""
+        buckets = self.api._get("buckets")
+        if not buckets:
+            return
+
+        window_bucket = next((b for b in buckets if "aw-watcher-window" in b and self.api.hostname in b), None)
+        web_bucket = next((b for b in buckets if "aw-watcher-web" in b and self.api.hostname in b), None)
+
+        window_events = []
+        if window_bucket:
+            events = self.api._get(f"buckets/{window_bucket}/events?limit=2000")
+            if isinstance(events, list):
+                window_events = events
+
+        web_events = []
+        if web_bucket:
+            events = self.api._get(f"buckets/{web_bucket}/events?limit=2000")
+            if isinstance(events, list):
+                web_events = events
+
+        # Parse window and web events into intervals for overlap resolution
+        parsed_window = []
+        for ev in window_events:
+            interval = self._parse_event_interval(ev)
+            if interval:
+                parsed_window.append((interval[0], interval[1], ev))
+
+        parsed_web = []
+        for ev in web_events:
+            interval = self._parse_event_interval(ev)
+            if interval:
+                parsed_web.append((interval[0], interval[1], ev))
+
+        # Wayland overlap resolver: Override "unknown" window events with "firefox" if they overlap with web events
+        for ws, we, w_ev in parsed_window:
+            data = w_ev.setdefault("data", {})
+            app = (data.get("app") or "unknown").lower()
+            if app == "unknown":
+                for webs, webe, web_ev in parsed_web:
+                    if max(ws, webs) < min(we, webe):
+                        data["app"] = "firefox"
+                        break
+
+        goals = self.store.list_goals()
+        for goal in goals:
+            pattern = goal.app_pattern.lower()
+            if pattern == "terminal":
+                continue  # Terminal is tracked locally via pseudo-terminal activity polling
+
+            total_seconds = 0.0
+
+            # 1. Match window events
+            for ws, we, w_ev in parsed_window:
+                timestamp = w_ev.get("timestamp", "")
+                if self._is_today_local(timestamp):
+                    data = w_ev.get("data", {})
+                    app = data.get("app", "") or ""
+                    title = data.get("title", "") or ""
+                    if pattern in app.lower() or pattern in title.lower():
+                        total_seconds += w_ev.get("duration", 0.0)
+
+            # 2. Match web events (only for non-browser patterns to prevent double counting browser goals)
+            is_browser_pattern = pattern in ("firefox", "chrome", "chromium", "brave", "opera", "google-chrome")
+            if not is_browser_pattern:
+                for ws, we, web_ev in parsed_web:
+                    timestamp = web_ev.get("timestamp", "")
+                    if self._is_today_local(timestamp):
+                        data = web_ev.get("data", {})
+                        url = data.get("url", "") or ""
+                        title = data.get("title", "") or ""
+                        if pattern in url.lower() or pattern in title.lower():
+                            total_seconds += web_ev.get("duration", 0.0)
+
+            # Overwrite database with verified duration from ActivityWatch to keep report accurate
+            with self.store._connect() as conn:
+                conn.execute("""
+                    INSERT INTO daily_accumulated_time (date, app_pattern, duration_seconds)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(date, app_pattern) DO UPDATE SET duration_seconds = ?;
+                """, (today_str, goal.app_pattern, int(total_seconds), int(total_seconds)))
+                conn.commit()
+
     async def run(self) -> None:
         logger.info("Initializing background integration loops...")
         
+        # Initial sync on daemon startup
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        try:
+            self._sync_activitywatch_time(today_str)
+        except Exception as e:
+            logger.warning(f"Initial ActivityWatch history sync failed: {e}")
+
+        sync_counter = 0
+
         while self.should_run:
             try:
                 # 1. Fetch data from systems
@@ -296,16 +450,17 @@ class IntegrationDaemon:
                 aw_state = self.api.get_current_state()
                 today_str = datetime.now().strftime("%Y-%m-%d")
 
-                # 2. Update local tracked database for goals matching current app
-                if not aw_state["is_afk"] and aw_state["app"] != "Unknown":
-                    # Match goals and attribute duration increment
-                    goals = self.store.list_goals()
-                    for goal in goals:
-                        if goal.app_pattern.lower() in aw_state["app"].lower() or \
-                           goal.app_pattern.lower() in aw_state["title"].lower():
-                            self.store.log_time(today_str, goal.app_pattern, int(self.poll_interval))
+                # 2. Sync ActivityWatch database entries (every 10 seconds / 5 iterations)
+                sync_counter += 1
+                if sync_counter >= 5:
+                    self._sync_activitywatch_time(today_str)
+                    sync_counter = 0
 
-                # 3. Compile Progress Report
+                # 3. Log real-time pseudo-terminal time if active
+                if not aw_state["is_afk"] and aw_state["app"].lower() == "terminal":
+                    self.store.log_time(today_str, "terminal", int(self.poll_interval))
+
+                # 4. Compile Progress Report
                 progress = self.store.get_progress(today_str)
                 
                 # Check for day boundary to flush notification logs
@@ -353,13 +508,13 @@ class IntegrationDaemon:
                     goals_progress=progress
                 )
 
-                # 4. Atomically write cache to avoid race conditions with widget UI reads
+                # 5. Atomically write cache to avoid race conditions with widget UI reads
                 temp_cache = CACHE_DIR / "status.json.tmp"
                 with open(temp_cache, "w") as f:
                     json.dump(asdict(summary), f, indent=2)
                 temp_cache.replace(CACHE_DIR / "status.json")
 
-                # 5. Format flat-text dashboard for lightweight widget consumption
+                # 6. Format flat-text dashboard for lightweight widget consumption
                 widget_lines = [
                     f"CPU: {sys_metrics['cpu']:.1f}% | RAM: {sys_metrics['ram']:.1f}%",
                     f"App: {aw_state['app']} ({'AFK' if aw_state['is_afk'] else 'Active'})",
