@@ -32,7 +32,14 @@ def init_settings(conn: sqlite3.Connection) -> None:
     conn.execute("""CREATE TABLE IF NOT EXISTS questions_catalog (
         id INTEGER PRIMARY KEY AUTOINCREMENT, subject TEXT NOT NULL, question TEXT NOT NULL,
         answer TEXT, confidence_level INTEGER DEFAULT 1, times_reviewed INTEGER DEFAULT 0,
-        last_reviewed TEXT, created_at TEXT NOT NULL);""")
+        last_reviewed TEXT, ease_factor REAL DEFAULT 2.5, interval INTEGER DEFAULT 0,
+        next_review_date TEXT, created_at TEXT NOT NULL);""")
+    try:
+        conn.execute("ALTER TABLE questions_catalog ADD COLUMN ease_factor REAL DEFAULT 2.5;")
+        conn.execute("ALTER TABLE questions_catalog ADD COLUMN interval INTEGER DEFAULT 0;")
+        conn.execute("ALTER TABLE questions_catalog ADD COLUMN next_review_date TEXT;")
+    except sqlite3.OperationalError:
+        pass
     conn.execute("""CREATE TABLE IF NOT EXISTS journal_qa (
         id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, timestamp TEXT NOT NULL,
         journal_type TEXT NOT NULL, question TEXT NOT NULL, response_type TEXT NOT NULL,
@@ -89,6 +96,7 @@ def print_help_menu() -> None:
   \033[1;35mlearning-goal\033[0m  ➔ Manage learning subjects (add/remove/list)
   \033[1;35mquestion\033[0m       ➔ Manage flashcard questions (add/remove/list)
   \033[1;35mquiz\033[0m           ➔ Self-test with flashcards and update confidence
+  \033[1;35mfocus\033[0m          ➔ Start a Pomodoro deep work timer and block distractions
 
 \033[1;32mHabits & Journaling:\033[0m
   \033[1;35mhabit\033[0m          ➔ Manage daily habits (add/remove/list/track)
@@ -480,7 +488,45 @@ def manage_learning_goals(args: List[str]) -> None:
             for r in rows: print(f"  • {r['subject']} (added {r['created_at'][:10]})")
     conn.close()
 
-# ── Study Journal ────────────────────────────────────────────
+# ── Study Journal & Deep Work ────────────────────────────────────────────
+def run_pomodoro(args: List[str]) -> None:
+    import time, sys, subprocess
+    try: minutes = int(args[0]) if args else 25
+    except ValueError: print("\033[1;31mError:\033[0m Invalid minutes. Usage: shtool focus [minutes]"); return
+    
+    conn = sqlite3.connect(DB_PATH); conn.row_factory = sqlite3.Row; init_settings(conn)
+    limits = [r["app_pattern"] for r in conn.execute("SELECT app_pattern FROM goals WHERE is_limit = 1")]
+    
+    print(f"\033[1;36m=== 🍅 DEEP WORK FOCUS MODE ({minutes} minutes) ===\033[0m")
+    print("Actively enforcing limit goals... Press Ctrl+C to cancel.")
+    
+    try:
+        for remaining in range(minutes * 60, 0, -1):
+            sys.stdout.write(f"\r  \033[1;33mTime Remaining:\033[0m {remaining // 60:02d}:{remaining % 60:02d} ")
+            sys.stdout.flush()
+            if remaining % 5 == 0:
+                for limit in limits:
+                    subprocess.run(["pkill", "-fi", limit], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+            time.sleep(1)
+        print("\n\n\033[1;32m✓ Deep work session completed!\033[0m")
+        try:
+            subprocess.Popen(["paplay", "/usr/share/sounds/freedesktop/stereo/complete.oga"], stderr=subprocess.DEVNULL)
+        except: pass
+        
+        subj = input("What subject did you study? ").strip()
+        topic = input("What specific topic? ").strip()
+        if subj and topic:
+            rating = _prompt_scale("Understanding rating", 1, 5)
+            notes = input("Any notes? ").strip()
+            conn.execute("INSERT INTO study_journal (timestamp, subject, topic_studied, duration_minutes, understanding_rating, notes) VALUES (?, ?, ?, ?, ?, ?);",
+                         (datetime.now(timezone.utc).isoformat(), subj, topic, minutes, rating, notes))
+            conn.commit()
+            print("✓ Session logged to study journal.")
+    except KeyboardInterrupt:
+        print("\n\n\033[1;31mFocus session interrupted.\033[0m")
+    finally:
+        conn.close()
+
 def interactive_study(args: List[str]) -> None:
     conn = sqlite3.connect(DB_PATH); conn.row_factory = sqlite3.Row; init_settings(conn)
     if args and args[0] == "journal":
@@ -551,11 +597,16 @@ def manage_questions(args: List[str]) -> None:
 
 def run_quiz(args: List[str]) -> None:
     import time
+    from datetime import timedelta
     conn = sqlite3.connect(DB_PATH); conn.row_factory = sqlite3.Row; init_settings(conn)
-    cursor = conn.execute("SELECT id, subject, question, answer, confidence_level FROM questions_catalog ORDER BY confidence_level ASC, RANDOM() LIMIT 5;")
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+    
+    cursor = conn.execute("SELECT id, subject, question, answer, confidence_level, ease_factor, interval, times_reviewed FROM questions_catalog WHERE next_review_date IS NULL OR next_review_date <= ? ORDER BY RANDOM() LIMIT 10;", (now_iso,))
     cards = cursor.fetchall()
-    if not cards: print("No flashcards available. Use: shtool question add"); conn.close(); return
-    print(f"\033[1;36m=== SELF-TEST QUIZ ({len(cards)} questions) ===\033[0m\n")
+    if not cards: print("No flashcards due for review right now! Use: shtool question add"); conn.close(); return
+    
+    print(f"\033[1;36m=== SELF-TEST QUIZ ({len(cards)} questions due) ===\033[0m\n")
     for idx, card in enumerate(cards, 1):
         print(f"\033[1;33mQ{idx}.\033[0m [{card['subject']}] {card['question']}")
         t0 = time.time()
@@ -564,10 +615,31 @@ def run_quiz(args: List[str]) -> None:
         elapsed = round(time.time() - t0, 1)
         print(f"  \033[1;32mAnswer:\033[0m {card['answer'] or '(no answer stored)'}")
         new_conf = _prompt_scale("  Rate your confidence now", 1, 5)
-        conn.execute("UPDATE questions_catalog SET confidence_level = ?, times_reviewed = times_reviewed + 1, last_reviewed = ? WHERE id = ?;",
-                     (new_conf, datetime.now(timezone.utc).isoformat(), card["id"]))
+        
+        # SuperMemo-2 Algorithm
+        q = new_conf
+        ef = card["ease_factor"] if card["ease_factor"] is not None else 2.5
+        interval = card["interval"] if card["interval"] is not None else 0
+        reps = card["times_reviewed"] if card["times_reviewed"] is not None else 0
+        
+        if q >= 3:
+            if reps == 0: interval = 1
+            elif reps == 1: interval = 6
+            else: interval = max(1, round(interval * ef))
+            reps += 1
+        else:
+            reps = 0
+            interval = 1
+            
+        ef = ef + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02))
+        if ef < 1.3: ef = 1.3
+        
+        next_review_iso = (now + timedelta(days=interval)).isoformat()
+        
+        conn.execute("UPDATE questions_catalog SET confidence_level = ?, times_reviewed = ?, last_reviewed = ?, ease_factor = ?, interval = ?, next_review_date = ? WHERE id = ?;",
+                     (new_conf, reps, now_iso, ef, interval, next_review_iso, card["id"]))
         conn.commit()
-        print(f"  (Took {elapsed}s)\n")
+        print(f"  (Took {elapsed}s. Next review in {interval} day(s))\n")
     print("✓ Quiz session complete!"); conn.close()
 
 # ── Habits ───────────────────────────────────────────────────
@@ -999,6 +1071,8 @@ def main() -> None:
         interactive_mood(args)
     elif cmd == "study":
         interactive_study(args)
+    elif cmd == "focus":
+        run_pomodoro(args)
     elif cmd in ("learning-goal", "lg"):
         manage_learning_goals(args)
     elif cmd == "question":

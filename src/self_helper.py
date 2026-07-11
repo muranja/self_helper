@@ -288,9 +288,18 @@ class GoalStore:
                     confidence_level INTEGER DEFAULT 1,
                     times_reviewed INTEGER DEFAULT 0,
                     last_reviewed TEXT,
+                    ease_factor REAL DEFAULT 2.5,
+                    interval INTEGER DEFAULT 0,
+                    next_review_date TEXT,
                     created_at TEXT NOT NULL
                 );
             """)
+            try:
+                conn.execute("ALTER TABLE questions_catalog ADD COLUMN ease_factor REAL DEFAULT 2.5;")
+                conn.execute("ALTER TABLE questions_catalog ADD COLUMN interval INTEGER DEFAULT 0;")
+                conn.execute("ALTER TABLE questions_catalog ADD COLUMN next_review_date TEXT;")
+            except sqlite3.OperationalError:
+                pass
             # --- Journal Q&A Schema (guided prompts with typed responses) ---
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS journal_qa (

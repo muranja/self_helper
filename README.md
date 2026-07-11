@@ -1,10 +1,10 @@
-# ⚡ Self-Helper Telemetry System
+# Self-Helper Telemetry System
 
 A production-grade, low-overhead activity tracking, journaling, and behavioral coaching framework for Linux desktop environments. 
 
 ---
 
-## 🌟 The Soul of the Tool (Philosophy)
+## The Soul of the Tool (Philosophy)
 
 Self-Helper is built on the premise that **mindless restriction doesn't work; mindful tracking and reflection do.** 
 
@@ -12,7 +12,7 @@ It is not just a website blocker. It is a comprehensive digital ecosystem design
 
 ---
 
-## 🏗️ Technology Stack
+## Technology Stack
 
 - **Core Engine:** Pure Python 3 (No heavy external dependencies).
 - **Data Persistence:** Local, fast, and secure **SQLite** database using WAL mode for concurrent read/writes.
@@ -23,22 +23,22 @@ It is not just a website blocker. It is a comprehensive digital ecosystem design
 
 ---
 
-## ✨ Features (Currently Implemented)
+## Features (Currently Implemented)
 
-- **🚀 Dual-Engine Tracking**: Passive telemetry matching desktop window events combined with browser tab/URL aggregation via the ActivityWatch Firefox Extension.
-- **🎭 Persona Presets**: Instantly configure the tool for your lifestyle (`student`, `nurse`, `engineer`, `hobbyist`) with pre-loaded goals, habits, and learning subjects.
-- **📂 Structured Goal Storage**: Set strict daily limits (e.g., max 1 hour of YouTube) or productive targets (e.g., min 2 hours of terminal/coding).
-- **📝 Guided Mood & Reflection Journals**: Log your mood on a 1-10 scale (including energy and focus), track gratitude, and answer structured prompts for morning/evening reflection. Includes automatic local weather context.
-- **✅ Daily Habit Tracker**: Add recurring daily habits and check them off interactively right in your terminal.
-- **🧠 Flashcard Catalog & Quizzes**: Add active recall questions to your learning subjects and test yourself using the built-in `shtool quiz` command. Tracks your confidence levels (1-5) over time.
-- **📚 Study Journal**: Log dedicated study sessions, tracking duration, topic, and understanding ratings.
-- **📈 CLI Coaching Reports**: Detailed daily progress visualizations and 7-day cumulative reports highlighting distraction trends and peak focus blocks.
-- **🤖 AI-Ready JSON Exports**: Run `shtool dump` to export your entire database (goals, usage, moods, habits, study logs) into a structured JSON payload (Schema v2.0), perfect for ingestion by AI coaches for deep semantic suggestions.
-- **🛡️ Configurable Privacy Levels**: Complete local control over database logging depth (low, medium, or high privacy filtering).
+- **Dual-Engine Tracking**: Passive telemetry matching desktop window events combined with browser tab/URL aggregation via the ActivityWatch Firefox Extension.
+- **Persona Presets**: Instantly configure the tool for your lifestyle (`student`, `nurse`, `engineer`, `hobbyist`) with pre-loaded goals, habits, and learning subjects.
+- **Structured Goal Storage**: Set strict daily limits (e.g., max 1 hour of YouTube) or productive targets (e.g., min 2 hours of terminal/coding).
+- **Guided Mood & Reflection Journals**: Log your mood on a 1-10 scale (including energy and focus), track gratitude, and answer structured prompts for morning/evening reflection. Includes automatic local weather context.
+- **Daily Habit Tracker**: Add recurring daily habits and check them off interactively right in your terminal.
+- **Flashcard Catalog & Quizzes**: Add active recall questions to your learning subjects and test yourself using the built-in `shtool quiz` command. Tracks your confidence levels (1-5) over time.
+- **Study Journal**: Log dedicated study sessions, tracking duration, topic, and understanding ratings.
+- **CLI Coaching Reports**: Detailed daily progress visualizations and 7-day cumulative reports highlighting distraction trends and peak focus blocks.
+- **AI-Ready JSON Exports**: Run `shtool dump` to export your entire database (goals, usage, moods, habits, study logs) into a structured JSON payload (Schema v2.0), perfect for ingestion by AI coaches for deep semantic suggestions.
+- **Configurable Privacy Levels**: Complete local control over database logging depth (low, medium, or high privacy filtering).
 
 ---
 
-## ⚙️ How It Really Works
+## How It Really Works
 
 1. **The Daemon (`self-helper.service`)**: A lightweight Python script runs in the background. Every few seconds, it queries the local ActivityWatch server to see what window or browser tab is currently active.
 2. **The Database**: If the active window matches one of your configured "goals" (e.g., `youtube.com` or `terminal`), the daemon updates the `daily_accumulated_time` table in your local SQLite database.
@@ -47,7 +47,7 @@ It is not just a website blocker. It is a comprehensive digital ecosystem design
 
 ---
 
-## 🚀 Installation & Setup
+## Installation & Setup
 
 ### 1. Prerequisites
 Ensure the following packages are running on your system:
@@ -70,7 +70,7 @@ source ~/.bashrc
 
 ---
 
-## 📖 Command Reference (`shtool`)
+## Command Reference (`shtool`)
 
 | Category | Command | Description |
 |---|---|---|
@@ -90,7 +90,7 @@ source ~/.bashrc
 
 ---
 
-## 🗺️ Future Roadmap
+## Future Roadmap
 
 We are constantly evolving to make Self-Helper the ultimate productivity OS. Upcoming features include:
 
@@ -102,18 +102,18 @@ We are constantly evolving to make Self-Helper the ultimate productivity OS. Upc
 
 ---
 
-## ☕ Support the Project & Donate
+## Support the Project & Donate
 
 If Self-Helper has helped you optimize your screen time, manage digital distractions, and focus on deep work, consider supporting development!
 
 Your donations help maintain open-source system tool integration layers, new dashboard features, and notification extensions.
 
-- **☕ Buy Me A Coffee**: [buymeacoffee.com/muranja](https://www.buymeacoffee.com/muranja)
-- **💖 GitHub Sponsors**: Sponsor `@muranja` directly on GitHub.
-- **💵 PayPal**: Send support to [paypal.me/muranja](https://paypal.me/muranja)
-- **⚡ Lightning Network (BTC)**: `muranja@getalby.com`
+- **Buy Me A Coffee**: [buymeacoffee.com/muranja](https://www.buymeacoffee.com/muranja)
+- **GitHub Sponsors**: Sponsor `@muranja` directly on GitHub.
+- **PayPal**: Send support to [paypal.me/muranja](https://paypal.me/muranja)
+- **Lightning Network (BTC)**: `muranja@getalby.com`
 
 ---
 
-## 📝 License
+## License
 This project is licensed under the MIT License. Feel free to fork, adapt, and share!

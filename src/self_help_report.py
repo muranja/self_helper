@@ -286,9 +286,49 @@ class ReportGenerator:
                     print("  Coaching: Boundary holds stable. Consider lowering the daily limit to tighten focus.")
 
 
+    def generate_ai_coaching(self) -> None:
+        import subprocess
+        import shutil
+        import json
+        from pathlib import Path
+        
+        print("\n\033[1;36m=== 🤖 LOCAL AI COACHING (smollm2:360m) ===\033[0m")
+        if not shutil.which("ollama"):
+            print("\033[1;31mError:\033[0m Ollama is not installed. Please install from https://ollama.com")
+            return
+            
+        print("Gathering telemetry data...")
+        subprocess.run(["/home/vin/.local/bin/shtool", "dump"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        dump_path = Path.home() / "self_helper_dump.json"
+        
+        if not dump_path.exists():
+            print("\033[1;31mError:\033[0m Could not find data dump.")
+            return
+            
+        with open(dump_path, "r") as f:
+            dump_data = f.read()
+            
+        # Truncate dump data slightly if it's too massive for a small model context window
+        if len(dump_data) > 6000:
+            dump_data = dump_data[:6000] + "...(truncated)"
+            
+        prompt = f"""You are an expert productivity coach. Analyze the following telemetry data which includes my screen time, habits, study journals, and mood.
+Provide a concise, highly actionable coaching summary in 3 bullet points. Address any breached limits, skipped habits, or correlations between my mood and productivity.
+Keep it brief and encouraging.
+
+DATA:
+{dump_data}
+"""
+        print("Consulting local AI... (first run will download the ~250MB model)\n")
+        try:
+            subprocess.run(["ollama", "run", "smollm2:360m"], input=prompt, text=True)
+        except Exception as e:
+            print(f"\033[1;31mError during AI inference:\033[0m {e}")
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Self-Help Diagnostic and Telemetry Evaluator.")
     parser.add_argument("--weekly", action="store_true", help="Print weekly cumulative trend analysis.")
+    parser.add_argument("--ai", action="store_true", help="Run local AI coaching analysis using ollama (smollm2:360m).")
     args = parser.parse_args()
 
     if not DB_PATH.exists():
@@ -298,6 +338,9 @@ def main() -> None:
     generator = ReportGenerator(DB_PATH)
     if args.weekly:
         generator.print_weekly_report()
+    elif args.ai:
+        generator.print_daily_report()
+        generator.generate_ai_coaching()
     else:
         generator.print_daily_report()
 
