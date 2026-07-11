@@ -237,7 +237,25 @@ class GoalStore:
                     PRIMARY KEY (date, app_pattern)
                 );
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                );
+            """)
+            conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('privacy_level', 'low');")
+            conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('audio_alerts', 'on');")
+            conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('speech_alerts', 'off');")
             conn.commit()
+
+    def get_setting(self, key: str, default: str) -> str:
+        try:
+            with self._connect() as conn:
+                cursor = conn.execute("SELECT value FROM settings WHERE key = ?;", (key,))
+                row = cursor.fetchone()
+                return row[0] if row else default
+        except Exception:
+            return default
 
     def add_goal(self, goal: Goal) -> bool:
         try:
@@ -316,13 +334,40 @@ class IntegrationDaemon:
         self.notified_goals = set()
         self.current_date_str = datetime.now().strftime("%Y-%m-%d")
 
-    def _send_notification(self, title: str, message: str, urgency: str = "normal") -> None:
-        """Fires a standard libnotify desktop alert."""
+    def _send_notification(self, title: str, message: str, urgency: str = "normal", alert_type: str = "warning") -> None:
+        """Fires a standard libnotify desktop alert and plays sound/speech effects if configured."""
         try:
             import subprocess
+            # Send standard visual desktop notification
             subprocess.run(["notify-send", "-u", urgency, title, message], check=False)
+            
+            # Fetch sound settings
+            audio_enabled = self.store.get_setting("audio_alerts", "on") == "on"
+            speech_enabled = self.store.get_setting("speech_alerts", "off") == "on"
+            
+            if audio_enabled:
+                sound_paths = {
+                    "warning": "/usr/share/sounds/sound-icons/prompt.wav",
+                    "exceeded": "/usr/share/sounds/sound-icons/trumpet-1.wav",
+                    "achieved": "/usr/share/sounds/sound-icons/xylofon.wav"
+                }
+                sound_path = sound_paths.get(alert_type)
+                if sound_path:
+                    try:
+                        # Play sound in background (non-blocking)
+                        subprocess.Popen(["paplay", sound_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    except Exception:
+                        try:
+                            subprocess.Popen(["aplay", sound_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        except Exception:
+                            pass
+            
+            if speech_enabled:
+                # Speak message in background (non-blocking)
+                subprocess.Popen(["spd-say", message], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                
         except Exception as e:
-            logger.debug(f"Failed to issue notify-send: {e}")
+            logger.debug(f"Failed to issue notification chimes/synthesis: {e}")
 
     def _is_today_local(self, timestamp_str: str) -> bool:
         """Determines if the ActivityWatch event timestamp belongs to today in local time."""
@@ -479,14 +524,16 @@ class IntegrationDaemon:
                             self._send_notification(
                                 "Goal Limit Exceeded",
                                 f"Daily boundary breached for '{pattern}'!",
-                                "critical"
+                                "critical",
+                                alert_type="exceeded"
                             )
                             self.notified_goals.add((pattern, "limit_exceeded"))
                         elif pct >= 80.0 and (pattern, "limit_warning") not in self.notified_goals:
                             self._send_notification(
                                 "Goal Limit Warning",
                                 f"You have reached {pct:.0f}% of your daily limit for '{pattern}'!",
-                                "normal"
+                                "normal",
+                                alert_type="warning"
                             )
                             self.notified_goals.add((pattern, "limit_warning"))
                     else:
@@ -494,7 +541,8 @@ class IntegrationDaemon:
                             self._send_notification(
                                 "Goal Target Achieved!",
                                 f"Congratulations! You completed your daily target for '{pattern}'!",
-                                "normal"
+                                "normal",
+                                alert_type="achieved"
                             )
                             self.notified_goals.add((pattern, "target_completed"))
 

@@ -24,9 +24,9 @@ def init_settings(conn: sqlite3.Connection) -> None:
             value TEXT
         );
     """)
-    conn.execute("""
-        INSERT OR IGNORE INTO settings (key, value) VALUES ('privacy_level', 'low');
-    """)
+    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('privacy_level', 'low');")
+    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('audio_alerts', 'on');")
+    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('speech_alerts', 'off');")
     conn.commit()
 
 def get_setting(conn: sqlite3.Connection, key: str, default: str) -> str:
@@ -59,7 +59,7 @@ def print_help_menu() -> None:
 \033[1;32mGoal & System Settings:\033[0m
   \033[1;35mgoals\033[0m        ➔ List all current limits and focus targets
   \033[1;35madd\033[0m          ➔ Add a new goal (e.g., shtool add --pattern youtube.com --hours 1 --limit)
-  \033[1;35mconfig\033[0m       ➔ Set/view CLI configuration parameters (e.g. privacy filtering)
+  \033[1;35mconfig\033[0m       ➔ Set/view CLI configuration parameters (e.g. privacy, audio)
 
 \033[1;32mDaemon Management:\033[0m
   \033[1;35mdaemon\033[0m       ➔ Check background systemd tracking service status
@@ -81,10 +81,14 @@ def print_help_menu() -> None:
   shtool report
   shtool weekly
 
-  \033[1;32m# 5. Adjust Privacy Levels (low = full URLs, medium = domains only, high = goals only):\033[0m
+  \033[1;32m# 5. Adjust Privacy Levels:\033[0m
   shtool config --privacy medium
 
-  \033[1;32m# 6. Export JSON Telemetry Dump for AI Coaching Analysis:\033[0m
+  \033[1;32m# 6. Configure Audio Alerts and Speech Notifications:\033[0m
+  shtool config --audio on
+  shtool config --speech off
+
+  \033[1;32m# 7. Export JSON Telemetry Dump for AI Coaching Analysis:\033[0m
   shtool dump
 
 \033[1;36m============================================================\033[0m
@@ -302,9 +306,16 @@ def main() -> None:
         
         if len(args) == 0:
             privacy = get_setting(conn, "privacy_level", "low")
+            audio = get_setting(conn, "audio_alerts", "on")
+            speech = get_setting(conn, "speech_alerts", "off")
             print(f"\033[1;36m=== SHTOOL CONFIGURATION ===\033[0m")
             print(f"Privacy Level: \033[1;32m{privacy.upper()}\033[0m")
-            print("\nConfigure via: \033[1;33mshtool config --privacy [low|medium|high]\033[0m")
+            print(f"Audio Alerts (chimes): \033[1;32m{audio.upper()}\033[0m")
+            print(f"Speech Alerts (TTS):   \033[1;32m{speech.upper()}\033[0m")
+            print("\nConfigure via:")
+            print("  \033[1;33mshtool config --privacy [low|medium|high]\033[0m")
+            print("  \033[1;33mshtool config --audio [on|off]\033[0m")
+            print("  \033[1;33mshtool config --speech [on|off]\033[0m")
         elif len(args) == 2 and args[0] == "--privacy":
             level = args[1].lower()
             if level in ("low", "medium", "high"):
@@ -312,8 +323,26 @@ def main() -> None:
                 print(f"✓ Privacy level updated to: \033[1;32m{level.upper()}\033[0m")
             else:
                 print("\033[1;31mError:\033[0m Privacy level must be 'low', 'medium', or 'high'.")
+        elif len(args) == 2 and args[0] == "--audio":
+            val = args[1].lower()
+            if val in ("on", "off"):
+                set_setting(conn, "audio_alerts", val)
+                print(f"✓ Audio alerts updated to: \033[1;32m{val.upper()}\033[0m")
+            else:
+                print("\033[1;31mError:\033[0m Audio alerts value must be 'on' or 'off'.")
+        elif len(args) == 2 and args[0] == "--speech":
+            val = args[1].lower()
+            if val in ("on", "off"):
+                set_setting(conn, "speech_alerts", val)
+                print(f"✓ Speech alerts updated to: \033[1;32m{val.upper()}\033[0m")
+            else:
+                print("\033[1;31mError:\033[0m Speech alerts value must be 'on' or 'off'.")
         else:
-            print("\033[1;31mUsage:\033[0m shtool config OR shtool config --privacy [low|medium|high]")
+            print("\033[1;31mUsage:\033[0m")
+            print("  shtool config")
+            print("  shtool config --privacy [low|medium|high]")
+            print("  shtool config --audio [on|off]")
+            print("  shtool config --speech [on|off]")
         conn.close()
     elif cmd == "status":
         run_command(["/home/vin/.local/bin/self_helper.py", "status"])
