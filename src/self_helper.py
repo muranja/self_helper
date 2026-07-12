@@ -452,8 +452,27 @@ class IntegrationDaemon:
                             pass
             
             if speech_enabled:
-                # Speak message in background (non-blocking)
-                subprocess.Popen(["spd-say", message], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                # Speak message in background using existing Kokoro ONNX (zero-download offline execution)
+                kokoro_venv_py = Path("/home/vin/projects/content_gen/audio/.venv/bin/python3")
+                kokoro_model = Path("/home/vin/projects/content_gen/audio/kokoro-v1.0.int8.onnx")
+                kokoro_voices = Path("/home/vin/projects/content_gen/audio/voices-v1.0.bin")
+                
+                if kokoro_venv_py.exists() and kokoro_model.exists() and kokoro_voices.exists():
+                    tts_script = f"""import os, subprocess, soundfile as sf
+from kokoro_onnx import Kokoro
+try:
+    k = Kokoro('{kokoro_model}', '{kokoro_voices}')
+    samples, sr = k.create({repr(message)}, voice='af_heart', speed=1.0, lang='en-us')
+    out_wav = '/tmp/self_helper_alert.wav'
+    sf.write(out_wav, samples, sr)
+    subprocess.run(['paplay', out_wav], check=False)
+except Exception:
+    subprocess.run(['spd-say', {repr(message)}], check=False)
+"""
+                    subprocess.Popen([str(kokoro_venv_py), "-c", tts_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                else:
+                    # Fallback if Kokoro studio files are missing
+                    subprocess.Popen(["spd-say", message], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
         except Exception as e:
             logger.debug(f"Failed to issue notification chimes/synthesis: {e}")
